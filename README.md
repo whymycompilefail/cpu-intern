@@ -177,7 +177,9 @@ python harness.py --base-url http://127.0.0.1:8299 --problems 你的题.json --a
 
 ## 不要这么干
 
-**不要用上游最新的 llama.cpp 去打这个 patch。** 它对着 `e351231` 做的，上游每周几十个提交，ggml 那块重构频繁，打不上时报错会指到一个跟你改动无关的地方，很难看出真因。先 `git checkout e351231`。
+**不要用上游最新的 llama.cpp 去打这个 patch。** 它对着 `e351231`（2026-09-25）做的，上游每周几十个提交，ggml 那块重构频繁，打不上时报错会指到一个跟你改动无关的地方，很难看出真因。先 `git checkout e351231`。
+
+**也不要拿"日期最接近"的 commit 顶替。** 实测 `23f7aab`（晚 21 天）打同一个 patch：20 个文件里 17 个已被上游改过，但 `git apply` 只报 2 个文件失败，另外 15 个**带 offset 静默通过**。那种"只差一个 hunk、手改一下"的失败最危险——它意味着你在把 9 月的改动往 10 月的代码上贴。想自己确认哪个 commit 是真基线，用 patch 里 20 个文件的 `index` 前像去比对，方法见 [cpu-afterburner 的 `patches/README.md`](https://github.com/whymycompilefail/cpu-afterburner/blob/main/patches/README.md)。
 
 **不要把策略开关做成运行期 `if`。** 见上面抢块那节：包进运行期分支、代码一字不改，`gemv<>` 掉 26%。要开关就用 `#define`。
 
