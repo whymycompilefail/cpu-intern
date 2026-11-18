@@ -34,8 +34,9 @@
 
 ### 改过的 llama.cpp（[cpu-afterburner](https://github.com/whymycompilefail/cpu-afterburner)）
 
-基于上游 `e351231`（MIT），**20 个文件，+1428 / −194 行**。patch 不在本仓：改动的唯一真源在
-cpu-afterburner，`scripts/setup_llama.sh` 把它取回来，再 clone → 退基线 → 打 patch → 编译。
+基于上游 `e351231`（MIT），**20 个文件，+1428 / −194 行**。改动的唯一真源在
+cpu-afterburner——**它现在直接托管打好补丁的源码树**（3,453 个文件），所以
+`scripts/setup_llama.sh` 只是一次 clone 加一次编译，不再有"找基线 → 打 patch"这两步。
 
 patch 里同时带着 TTS 的两处改动（`tools/tts`、`tools/mtmd`），这不是多带的。推理和 TTS 在 CPU 上
 走的是同一套 ggml 内核，切分方式、循环顺序、图宽度改一次两边都受益；按项目裁成「纯文本版」只会
@@ -101,22 +102,24 @@ Windows + Visual Studio 2022（MSVC）、CMake 3.28+、Ninja、Python 3.11+。Li
 
 模型要自己下。**仓库不含权重**。
 
-### 编译 + 打 patch
+### 编译
 
 ```bash
 bash scripts/setup_llama.sh
 ```
 
-也可以用 `DEST=` 指定 clone 位置，`SKIP_BUILD=1` 只打 patch。核心是这几句，想手动做就照这个来：
+它就是 `git clone --depth=1` cpu-afterburner（源码在那边仓库里），然后 cmake 编译。`SKIP_BUILD=1` 只取源码，`BUILD=` 换构建目录，`AFTERBURNER_DIR=` 指到已有的本地克隆。
+
+想手动做就照这个来——**没有基线、没有 patch**：
 
 ```bash
-git clone https://github.com/whymycompilefail/cpu-afterburner ../cpu-afterburner
-git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp
-git checkout e351231c4f4cdd89c88e696c46d0eb718c9e0ab5
-git apply ../cpu-afterburner/patches/cpu-afterburner.patch
+git clone --depth=1 https://github.com/whymycompilefail/cpu-afterburner ../cpu-afterburner
+cmake -S ../cpu-afterburner/llama.cpp -B ../cpu-afterburner/llama.cpp/build -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=ON -DLLAMA_BUILD_TESTS=OFF
+cmake --build ../cpu-afterburner/llama.cpp/build -j
 ```
 
-`GGML_NATIVE=ON` 是故意的，别关——让编译器按你这台机器的 CPU 生成指令，关掉能跑但会慢一截，然后你会以为是 patch 没用。`GGML_AVX_VNNI` 保持默认关。
+`GGML_NATIVE=ON` 是故意的，别关——让编译器按你这台机器的 CPU 生成指令，关掉能跑但会慢一截，然后你会以为是优化没用。`GGML_AVX_VNNI` 保持默认关。
 
 ### 起服务
 
@@ -177,9 +180,7 @@ python harness.py --base-url http://127.0.0.1:8299 --problems 你的题.json --a
 
 ## 不要这么干
 
-**不要用上游最新的 llama.cpp 去打这个 patch。** 它对着 `e351231`（2026-09-25）做的，上游每周几十个提交，ggml 那块重构频繁，打不上时报错会指到一个跟你改动无关的地方，很难看出真因。先 `git checkout e351231`。
-
-**也不要拿"日期最接近"的 commit 顶替。** 实测 `23f7aab`（晚 21 天）打同一个 patch：20 个文件里 17 个已被上游改过，但 `git apply` 只报 2 个文件失败，另外 15 个**带 offset 静默通过**。那种"只差一个 hunk、手改一下"的失败最危险——它意味着你在把 9 月的改动往 10 月的代码上贴。想自己确认哪个 commit 是真基线，用 patch 里 20 个文件的 `index` 前像去比对，方法见 [cpu-afterburner 的 `patches/README.md`](https://github.com/whymycompilefail/cpu-afterburner/blob/main/patches/README.md)。
+**别自己去"找基线 + 打 patch"。** 源码已经随 cpu-afterburner 分发，`setup_llama.sh` 一次 clone 就位。这条以前是必须做的，也是它坑了人的原因：文档里那个基线 hash 一度写成官方仓库里根本不存在的 `5096f2a`，陌生人 checkout 必然失败；退一步用"日期最接近"的 `23f7aab`（晚 21 天），20 个文件里 17 个已被上游改过，而 `git apply` 只报 2 个文件失败、其余 15 个**带 offset 静默通过**。那种"只差一个 hunk、手改一下"的失败最危险——它意味着你在把 9 月的改动往 10 月的代码上贴。教训是**可运行性不该依赖一个外部 commit 恰好还在**。
 
 **不要把策略开关做成运行期 `if`。** 见上面抢块那节：包进运行期分支、代码一字不改，`gemv<>` 掉 26%。要开关就用 `#define`。
 

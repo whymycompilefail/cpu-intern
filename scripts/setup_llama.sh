@@ -1,74 +1,42 @@
 #!/usr/bin/env bash
-# 复现 fork：clone 上游 → 退到基线 → 打 patch → 编译。
+# 取到能编译的 llama.cpp：clone cpu-afterburner（源码就在它仓库里）→ 编译。
 #
-#   bash scripts/setup_llama.sh            # 完整流程
-#   DEST=/somewhere/llama.cpp bash scripts/setup_llama.sh
-#   SKIP_BUILD=1 bash scripts/setup_llama.sh   # 只打 patch，不编译
+#   bash scripts/setup_llama.sh
+#   AFTERBURNER_DIR=/d/cpu-afterburner bash scripts/setup_llama.sh   # 用本地已有克隆
+#   BUILD=/d/build bash scripts/setup_llama.sh                       # 构建目录放别处
+#   SKIP_BUILD=1 bash scripts/setup_llama.sh                         # 只取源码
 #
-# patch 不在本仓。改动的唯一真源是 cpu-afterburner：
-#   https://github.com/whymycompilefail/cpu-afterburner
+# 为什么不再"clone 上游 → 退到基线 → 打 patch"：那条链上每一步都会单独失败，
+# 而且失败得很像别的问题。基线 commit 曾写成一个官方仓库里不存在的哈希
+# （见 cpu-afterburner 的 patches/README.md），退一步找"日期最接近"的，
+# 20 个文件里 17 个已被上游改过、git apply 只报 2 个失败其余静默错位。
+# 现在 cpu-afterburner 直接托管打好的源码树：一次 clone，没有基线、没有 apply。
 #
-# 那份 patch 里同时带着 TTS 的改动（tools/tts、tools/mtmd），这不是多带的东西：
-# MoE 推理和 TTS 走的是同一套 ggml 内核，切分方式、循环顺序、图宽度改一次两边
-# 都受益。把它裁成"纯文本版"和"文本+TTS 版"两个变体等于把一件整体的事拆两半，
-# 而且两份会各自漂移——裁过两次，一次记 15 文件 +1121/−173，一次记 16 文件
-# +1239/−130，都跟真源（20 文件 +1428/−194）对不上。
-#
-# 本仓只用 llama-server，所以 TTS 那部分不编就不参与：tools/tts 是独立 target，
-# mtmd 那几处只在 GEN_WAV 分支里生效。想一起编就直接编，三个二进制都在。
-#
-# patch 必须打在 **e351231** 上。上游每周几十个提交，ggml 那块重构频繁，
-# 打不上时报错会指到一个跟你改动无关的地方（README「不要这么干」里有说明）。
-# 这个 commit 是用 patch 的 20 个前像 blob 在官方历史里反查出来的：在那一点，
-# 这 20 个文件与本 patch 的基线逐字节相同（2026-09-25，master 上真实存在）。
+# TTS 的改动（tools/tts、tools/mtmd）本来就在同一棵树里，不是额外塞的东西：
+# MoE 推理和 TTS 走同一套 ggml 内核。本仓只用 llama-server，不编 TTS 就不参与。
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PIN=e351231c4f4cdd89c88e696c46d0eb718c9e0ab5
-DEST="${DEST:-$HERE/llama.cpp}"
-
 AFTERBURNER_REPO="${AFTERBURNER_REPO:-https://github.com/whymycompilefail/cpu-afterburner}"
-AFTERBURNER_DIR="${AFTERBURNER_DIR:-$HERE/../cpu-afterburner}"
-PATCH_REL="patches/cpu-afterburner.patch"
-CACHE="$HERE/.cache/cpu-afterburner.patch"
+CLONE="${AFTERBURNER_DIR:-$HERE/../cpu-afterburner}"
+SRC="$CLONE/llama.cpp"
+BUILD="${BUILD:-$SRC/build}"
 
-if [ -f "$AFTERBURNER_DIR/$PATCH_REL" ]; then
-    PATCH="$AFTERBURNER_DIR/$PATCH_REL"
-    echo "=== patch 来源（本地）：$PATCH"
+if [ -f "$SRC/CMakeLists.txt" ]; then
+    echo "=== 用本地已有的源码树：$SRC"
 else
-    echo "=== 取 patch：$AFTERBURNER_REPO"
-    mkdir -p "$(dirname "$CACHE")"
-    if ! curl -fsSL "$AFTERBURNER_REPO/raw/main/$PATCH_REL" -o "$CACHE"; then
-        echo "下载失败。可以手动 clone 之后重跑：" >&2
-        echo "  git clone $AFTERBURNER_REPO $AFTERBURNER_DIR" >&2
-        exit 2
-    fi
-    PATCH="$CACHE"
+    echo "=== clone $AFTERBURNER_REPO -> $CLONE"
+    # --depth=1：只要一棵能编的树，不需要那一堆历史。
+    git clone --depth=1 "$AFTERBURNER_REPO" "$CLONE"
 fi
 
-[ -f "$PATCH" ] || { echo "找不到 patch: $PATCH" >&2; exit 2; }
-
-if [ -d "$DEST/.git" ]; then
-    echo "=== 复用已有克隆：$DEST"
-    cd "$DEST"
-    git fetch --tags origin || true
-else
-    echo "=== clone 到 $DEST"
-    # --filter=blob:none 只按需取 blob，比全量快很多；checkout 目标 commit 时会补齐。
-    git clone --filter=blob:none https://github.com/ggml-org/llama.cpp "$DEST"
-    cd "$DEST"
-fi
-
-echo "=== 退到基线 $PIN"
-git checkout -f "$PIN"
-
-echo "=== 打 patch"
-git apply --check "$PATCH"
-git apply "$PATCH"
-echo "    ok"
+[ -f "$SRC/CMakeLists.txt" ] || {
+    echo "clone 完了却找不到 $SRC/CMakeLists.txt —— 仓库结构变了？" >&2
+    exit 2
+}
 
 if [ "${SKIP_BUILD:-0}" = "1" ]; then
-    echo "=== SKIP_BUILD=1，跳过编译"
+    echo "=== SKIP_BUILD=1，源码在 $SRC"
     exit 0
 fi
 
@@ -89,14 +57,14 @@ case "$(uname -s)" in
 esac
 
 # GGML_NATIVE=ON 是故意的：让编译器按本机 CPU 生成指令。关掉能跑但会慢一截，
-# 然后你会以为是 patch 没用。GGML_AVX_VNNI 保持默认关（见 README）。
-cmake -S . -B build -G Ninja \
+# 然后你会以为是优化没用。GGML_AVX_VNNI 保持默认关（见 README）。
+cmake -S "$SRC" -B "$BUILD" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DGGML_CUDA=OFF -DGGML_VULKAN=OFF \
     -DGGML_NATIVE=ON -DLLAMA_BUILD_TESTS=OFF
-cmake --build build -j
+cmake --build "$BUILD" -j
 
 echo
-echo "=== 完成。产物在 $DEST/build/bin/"
+echo "=== 完成。产物在 $BUILD/bin/"
 echo "    llama-server（本仓用这个）/ llama-bench / llama-tts"
-echo "    下一步：GGUF=/path/to/model.gguf bash serve_mcp2b.sh"
+echo "    下一步：GGUF=/path/to/model.gguf bash path1/serve_mcp2b.sh"
