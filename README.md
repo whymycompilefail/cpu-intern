@@ -32,15 +32,22 @@
 
 ## 它由哪几块组成
 
-### 改过的 llama.cpp（`patches/llama-cpp-cpu-tuning.patch`）
+### 改过的 llama.cpp（[cpu-afterburner](https://github.com/whymycompilefail/cpu-afterburner)）
 
-基于上游 `5096f2a`（MIT），**16 个文件，+1239 / −130 行**。用 `scripts/setup_llama.sh` 一条命令能 clone → 退基线 → 打 patch → 编译。
+基于上游 `e351231`（MIT），**20 个文件，+1428 / −194 行**。patch 不在本仓：改动的唯一真源在
+cpu-afterburner，`scripts/setup_llama.sh` 把它取回来，再 clone → 退基线 → 打 patch → 编译。
+
+patch 里同时带着 TTS 的两处改动（`tools/tts`、`tools/mtmd`），这不是多带的。推理和 TTS 在 CPU 上
+走的是同一套 ggml 内核，切分方式、循环顺序、图宽度改一次两边都受益；按项目裁成「纯文本版」只会
+多出一份会自己漂移的副本——裁过两次，一次记 15 个文件、一次记 16 个，都跟真源对不上。
+本仓不编 TTS，那部分就不参与编译。
 
 | 改动 | 状态 | 收益 |
 |---|---|---|
 | **MUL_MAT_ID 抢块**（`repack.cpp`） | **已实现，4/4 轮单向** | decode **+5.7%**、prefill **+18.3%** |
 | **op 级 profiler**（`ggml-cpu.c`，`GGML_OPPROF=1`） | 已实现，实测零开销 | 换模型十分钟定位瓶颈 |
 | `-fa auto` 按 KV 长度动态切注意力路径 | **已实现，验收全通** | 2k +17% / 4k +45% / 8k +90% |
+| TTS 尾窗按实际帧数构图（`tools/mtmd`） | 已实现 | 短尾不再按全窗口算 |
 | KV 头分组重排 | 部分通过（8 条里 5 条） | 验收没过，**数字不对外说** |
 | 量化 V cache 专用算子 | 验收失败，**默认关闭** | 代码留着但不参与计算 |
 | prompt ledger（前缀复用记账） | 未实现 | — |
@@ -100,12 +107,13 @@ Windows + Visual Studio 2022（MSVC）、CMake 3.28+、Ninja、Python 3.11+。Li
 bash scripts/setup_llama.sh
 ```
 
-也可以用 `DEST=` 指定 clone 位置，`SKIP_BUILD=1` 只打 patch。核心是这两句，想手动做就照这个来：
+也可以用 `DEST=` 指定 clone 位置，`SKIP_BUILD=1` 只打 patch。核心是这几句，想手动做就照这个来：
 
 ```bash
+git clone https://github.com/whymycompilefail/cpu-afterburner ../cpu-afterburner
 git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp
-git checkout 5096f2a42468daff7ff38d97b48bd17432196e98
-git apply ../patches/llama-cpp-cpu-tuning.patch
+git checkout e351231c4f4cdd89c88e696c46d0eb718c9e0ab5
+git apply ../cpu-afterburner/patches/cpu-afterburner.patch
 ```
 
 `GGML_NATIVE=ON` 是故意的，别关——让编译器按你这台机器的 CPU 生成指令，关掉能跑但会慢一截，然后你会以为是 patch 没用。`GGML_AVX_VNNI` 保持默认关。
@@ -169,7 +177,7 @@ python harness.py --base-url http://127.0.0.1:8299 --problems 你的题.json --a
 
 ## 不要这么干
 
-**不要用上游最新的 llama.cpp 去打这个 patch。** 它对着 `5096f2a` 做的，上游每周几十个提交，ggml 那块重构频繁，打不上时报错会指到一个跟你改动无关的地方，很难看出真因。先 `git checkout 5096f2a`。
+**不要用上游最新的 llama.cpp 去打这个 patch。** 它对着 `e351231` 做的，上游每周几十个提交，ggml 那块重构频繁，打不上时报错会指到一个跟你改动无关的地方，很难看出真因。先 `git checkout e351231`。
 
 **不要把策略开关做成运行期 `if`。** 见上面抢块那节：包进运行期分支、代码一字不改，`gemv<>` 掉 26%。要开关就用 `#define`。
 
@@ -235,11 +243,8 @@ repair_eval/
   cdp_ws.py               WebSocket 最小实现（cdp_bridge 依赖它）
   sites.json              站点选择器表
   spec-cdp-bridge.md      这条通道的设计与踩过的坑
-patches/
-  llama-cpp-cpu-tuning.patch   16 文件 +1239/−130
-  README.md               上游基线、为什么这么改、回滚方式
 specs/                    每项改动的来历与实测数据（5 份）
-scripts/setup_llama.sh    clone + 退基线 + 打 patch + 编译
+scripts/setup_llama.sh    取 patch（cpu-afterburner）+ clone + 退基线 + 编译
 serve_mcp2b.sh            起 llama-server
 peek_fail.py              看某道题的原始回复形态
 probe_observed.py         观察值实验的探针（A/B/C/D 四档）

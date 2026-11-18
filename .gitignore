@@ -6,6 +6,9 @@ __pycache__/
 # llama.cpp 由 scripts/setup_llama.sh 拉取，不入库
 llama.cpp/
 
+# setup_llama.sh 下载的 patch 缓存
+.cache/
+
 # 权重与编译产物
 *.gguf
 *.bin
