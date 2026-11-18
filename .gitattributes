@@ -1,0 +1,10 @@
+# 统一用 LF。这个仓库里跑的都是 bash / python，CRLF 会让 shebang 和 patch 一起坏掉。
+* text=auto eol=lf
+
+# patch 必须逐字节原样：行尾一旦变成 CRLF，git apply 的上下文行就对不上。
+*.patch -text
+*.diff -text
+
+# 二进制
+*.gguf binary
+*.png binary

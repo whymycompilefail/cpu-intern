@@ -1,0 +1,16 @@
+# 忽略
+results/
+__pycache__/
+*.pyc
+
+# llama.cpp 由 scripts/setup_llama.sh 拉取，不入库
+llama.cpp/
+
+# 权重与编译产物
+*.gguf
+*.bin
+build/
+
+# 个人运行产物
+*.log
+tmp/

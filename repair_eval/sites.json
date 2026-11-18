@@ -1,0 +1,135 @@
+{
+  "_comment": [
+    "Site adapters for cdp_bridge.py.",
+    "Selectors are DISCOVERED with --probe, not guessed.",
+    "",
+    "submit.method:",
+    "  'enter'  -> type via trusted Input.insertText (focus first) then send with a",
+    "              trusted Enter key event. This is the robust path: synthetic",
+    "              value-set + synthetic input events update the DOM but never the",
+    "              app's state, so the message never reaches the backend.",
+    "  'click'  -> legacy: click the send button via JS .click() (unreliable).",
+    "",
+    "PREREQUISITE for any of this: the tab must be the active, focused target.",
+    "cdp_bridge.focus_page() calls Page.bringToFront +",
+    "Emulation.setFocusEmulationEnabled before touching the page. Without it a",
+    "background tab silently drops all keyboard events -- real keystrokes land",
+    "0 characters and Enter does nothing, which looks exactly like a React-state",
+    "problem but is not (see SPEC 7)."
+  ],
+
+  "default_site": "deepseek",
+
+  "sites": {
+    "kimi": {
+      "url_contains": "www.kimi.com",
+      "input": {
+        "_note": "contenteditable composer; textarea fallback",
+        "selectors": ["[contenteditable='true']", "textarea"],
+        "fallback_selectors": ["div[contenteditable='true']", "textarea"]
+      },
+      "submit": {
+        "_note": "chat page /chat/<id> sends on Enter; the HOME page does NOT bind Enter and needs div.send-button-container. Enter first, then fall back to the button.",
+        "method": "enter",
+        "enter_fallback": true,
+        "button": "div.send-button-container"
+      },
+      "busy": {
+        "_note": "while generation runs, the assistant bubble shows a stop control",
+        "selectors": [],
+        "button_texts": ["思考中", "正在生成", "停止", "stop"]
+      },
+      "reply": {
+        "_note": "discovered 2026-10-20: conversation = .chat-content-list; .chat-content-item-assistant is the model reply (has <pre> code blocks). Take the LAST one.",
+        "selectors": ["div.chat-content-item-assistant"],
+        "take": "last"
+      }
+    },
+
+    "yuanbao": {
+      "_note": "discovered 2026-11-05: Quill composer (.ql-editor); Enter submits from the home page and inside a chat (URL -> /chat/<id>/<conv>); the AI bubble (agent-chat__list__item--ai) nests 深度思考 and the answer in one speech_show block, so take the LAST .hyc-common-markdown (the thinking markdown comes first).",
+      "url_contains": "yuanbao.tencent.com",
+      "input": {
+        "_note": "Quill editor; plain textarea as fallback",
+        "selectors": [".ql-editor"],
+        "fallback_selectors": ["textarea", "[contenteditable='true']"]
+      },
+      "submit": {
+        "_note": "Enter submits in both home and conversation views.",
+        "method": "enter",
+        "enter_fallback": true,
+        "button": "div.SendButton_sendButton__g3Lcb"
+      },
+      "busy": {
+        "selectors": [],
+        "button_texts": ["停止生成", "停止", "正在生成"]
+      },
+      "reply": {
+        "selectors": [".agent-chat__conv--ai__speech_show .hyc-common-markdown"],
+        "take": "last"
+      }
+    },
+
+    "qwen": {
+      "_note": "discovered 2026-11-05: tongyi.com redirects to www.qianwen.com; composer is a contenteditable div; Enter submits (URL -> /chat/<id>); the answer body is a single .qk-md-text element inside [class*=message-select-wrapper-answer] (no 深度思考 block in 快速 mode). 'Qwen-快速' is the default model picker.",
+      "url_contains": "www.qianwen.com",
+      "input": {
+        "_note": "contenteditable composer; textarea fallback",
+        "selectors": ["[contenteditable='true']"],
+        "fallback_selectors": ["textarea"]
+      },
+      "submit": {
+        "method": "enter",
+        "enter_fallback": true,
+        "button": "button[aria-label='发送消息']"
+      },
+      "busy": {
+        "selectors": [],
+        "button_texts": ["停止生成", "停止"]
+      },
+      "reply": {
+        "_note": "Qwen renders one .qk-md-text element PER PARAGRAPH, so taking the last .qk-md-text returns only the last line. The answer wrapper is the whole round and its innerText also picks up the chat title ('无标题 / 创建于 …') and the follow-up suggestion chips ('好的，继续写'), which made every chapter fail the truncation gate — drop_patterns removes those lines.",
+        "selectors": ["[class*='message-select-wrapper-answer']"],
+        "take": "last",
+        "empty_after": 90,
+        "drop_patterns": [
+          "^无标题$",
+          "^创建于.*",
+          "^好的，继续写$",
+          "^继续写$",
+          "^需要我.*吗？$",
+          "^.*需要我接着为你撰写.*吗？$",
+          "^要不要我.*？$"
+        ]
+      }
+    },
+
+    "deepseek": {
+      "_note": "WORKS since 2026-10-20 once the tab is focused: trusted insertText + Enter submits (verified: URL -> /a/chat/s/<id>, md-markdown count 0->2, textarea cleared). The 17 earlier failures were a background tab dropping keyboard events, not a React-state problem.",
+      "url_contains": "chat.deepseek.com",
+      "input": {
+        "_note": "plain React-controlled textarea",
+        "selectors": ["textarea"],
+        "fallback_selectors": ["div[contenteditable='true']", "[contenteditable='true']"]
+      },
+      "submit": {
+        "_note": "Enter submits on both the home page and inside a conversation. Fallback is the filled circular button at the right end of the composer.",
+        "method": "enter",
+        "enter_fallback": true,
+        "button": "div.ds-button--filled"
+      },
+      "busy": {
+        "_note": "while generating, the send button turns into a stop control",
+        "selectors": [],
+        "button_texts": ["停止生成", "停止", "Stop"]
+      },
+      "reply": {
+        "_note": "ds-markdown ds-assistant-message-main-content is the ANSWER BODY only; the wider ds-message also holds the thinking block (ds-think-content) which must stay out of the extracted code. DeepSeek sometimes dumps the whole answer into 深度思考, leaving this element absent — empty_after keeps the wait short so the provider can re-ask instead of burning the full timeout.",
+        "selectors": ["div.ds-markdown.ds-assistant-message-main-content"],
+        "take": "last",
+        "empty_after": 45,
+        "thinking_idle": 36
+      }
+    }
+  }
+}
