@@ -230,17 +230,22 @@ harness.py                读题、拼 prompt、调模型、判分、出报告
 SPEC.md                   内部设计文档（题池与判分细节、被推翻的假设都在这儿）
 repair_eval/
   run_repair.py           契约、prompt 模板、观察值计算、回复解析
+  inject.py               把改完的函数塞回模块、算改动行（纯 AST，无副作用）
   cdp_bridge.py           网页版兜底通道（CDP）
+  cdp_ws.py               WebSocket 最小实现（cdp_bridge 依赖它）
   sites.json              站点选择器表
   spec-cdp-bridge.md      这条通道的设计与踩过的坑
 patches/
   llama-cpp-cpu-tuning.patch   16 文件 +1239/−130
-  README.md               上游基线、为什么这么改、发布边界
+  README.md               上游基线、为什么这么改、回滚方式
 specs/                    每项改动的来历与实测数据（5 份）
 scripts/setup_llama.sh    clone + 退基线 + 打 patch + 编译
 serve_mcp2b.sh            起 llama-server
 peek_fail.py              看某道题的原始回复形态
+probe_observed.py         观察值实验的探针（A/B/C/D 四档）
+probe_locate_hint.py      定位提示实验的探针
 mcnemar_batch.py          两批结果的配对显著性检验
+.gitattributes            patch 必须逐字节原样（-text），否则 CRLF 会废掉它
 ```
 
 `specs/` 里跟 llama.cpp 有关的是五份：`fa-auto-adaptive.md`（为什么要按 KV 长度动态切，**唯一全通的**）、`fa-gqa-loop-reorder.md`（KV 头分组，部分通过）、`legacy-quant-v-op.md`（量化 V 算子，验收失败已关闭）、`quant-dot-efficiency.md`（为什么「减字节 = 提速」在这台机器上不成立，含被推翻的推导）、`prompt-ledger.md`（未实现）。只想知道「为什么这么改」，读 `fa-auto-adaptive.md` 就够。
