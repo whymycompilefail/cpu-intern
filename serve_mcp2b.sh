@@ -10,9 +10,12 @@
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# llama-server 的位置：默认假设 llama.cpp 被 clone 到本仓库下的 llama.cpp/，
-# 用 scripts/setup_llama.sh 就会长在那儿。装在别处就用 LLAMA= 覆盖。
-LLAMA="${LLAMA:-$HERE/llama.cpp/build/bin/llama-server.exe}"
+# llama-server 的位置：默认 `$HERE/../cpu-afterburner/llama.cpp/build/bin`，
+# 正是 scripts/setup_llama.sh 的默认克隆点与构建点，两处必须一致。
+# 装在别处用 LLAMA_DIR= 或 LLAMA= 覆盖。
+LLAMA_DIR="${LLAMA_DIR:-$HERE/../cpu-afterburner/llama.cpp}"
+[ -d "$LLAMA_DIR/build/bin" ] || { echo "no llama build at $LLAMA_DIR/build/bin -- run scripts/setup_llama.sh" >&2; exit 1; }
+LLAMA="${LLAMA:-$LLAMA_DIR/build/bin/llama-server.exe}"
 [ -x "$LLAMA" ] || LLAMA="${LLAMA%.exe}"
 GGUF="${GGUF:-}"
 PORT="${PORT:-8299}"
